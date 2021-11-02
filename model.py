@@ -25,7 +25,9 @@ class MultiHeadDotProductAttention(nn.Module):
         super().__init__()
         self.heads = heads
         self.scale = (dim/heads) ** -0.5
-
+        '''
+        qkv其实就是个Linear...
+        '''
         self.to_qkv = nn.Linear(dim, dim * 3)
 
         self.to_out = nn.Sequential(
@@ -35,9 +37,18 @@ class MultiHeadDotProductAttention(nn.Module):
 
     def forward(self, x, mask = None):
         b, n, _, h = *x.shape, self.heads
+        '''
+        chunk函数：进行分片的
+        第一个参数：分成多少块
+        第二个参数：维度
+        这个qkv直接分成三块即可
+        '''
         qkv = self.to_qkv(x).chunk(3, dim = -1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
-
+        
+        '''
+        ........einsum........
+        '''
         dots = torch.einsum('bhid,bhjd->bhij', q, k) * self.scale
 
         if mask is not None:
@@ -46,9 +57,13 @@ class MultiHeadDotProductAttention(nn.Module):
             mask = mask[:, None, :] * mask[:, :, None]
             dots.masked_fill_(~mask, float('-inf'))
             del mask
-
+        '''
+        转化为概率
+        '''
         attn = dots.softmax(dim=-1)
-
+        '''
+        求和
+        '''
         out = torch.einsum('bhij,bhjd->bhid', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
         out =  self.to_out(out)
@@ -75,15 +90,38 @@ class Encoder1DBlock(nn.Module):
         self.drop_out_attention  = nn.Dropout(attention_dropout_rate)
     
     def forward(self, inputs):
+        '''
+        先进一个Layer_norm
+        '''
         x = self.layer_norm_input(inputs)
+        '''
+        进一个attention
+        '''
         x = self.attention(x)
+        '''
+        很普通的dropout
+        '''
         x = self.drop_out_attention(x)
+        '''
+        残差连接
+        '''
         x = x + inputs
+        '''
+        layerNorm
+        '''
         y = self.layer_norm_out(x)
+        '''
+        一个mlp，最后跟一个残差，结束
+        '''
         y = self.mlp(y)
         return x + y
 
-
+'''
+input_shape = 768(16*16*3)
+num_layers = 12
+heads = 12
+mlp_dim = 3072，这是一个起到中间扩充的超参数，mlp中是两个全连接层，由768先扩到3072再由3072缩小到768
+'''
 class Encoder(nn.Module):
     def __init__(self, input_shape, num_layers, heads, mlp_dim, inputs_positions= None, dropout_rate=0.1, train=False):
         super().__init__()
@@ -95,6 +133,9 @@ class Encoder(nn.Module):
         self.encoder_norm = nn.LayerNorm(input_shape)
         # self.encoder_norm = nn.GroupNorm(1)
         self.layers = nn.ModuleList([])
+        '''
+        12个Encoder1DBlock，组成一个moduleList
+        '''
         for _ in range(num_layers):
             self.layers.append(nn.ModuleList([Encoder1DBlock(input_shape,heads, mlp_dim)]))
 
@@ -132,9 +173,15 @@ class ViT(nn.Module):
 
         x = rearrange(x, 'b c h w  -> b (h w) c')
         b, n, _ = x.shape
-
+        '''
+        为了把cls_token和x扩充到一个维度，方便cat
+        '''
         cls_tokens = repeat(self.cls, '() n d -> b n d', b = b)
         x = torch.cat((cls_tokens, x), dim=1)
+        '''
+        加上一个自己的位置信息
+        pos_embedding
+        '''
         x += self.pos_embedding[:, :(n + 1)]
         x = self.dropout(x)
 
