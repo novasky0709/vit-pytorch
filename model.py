@@ -157,6 +157,9 @@ class ViT(nn.Module):
         self.patch_size = patch_size
         self.hidden_size = hidden_size
         self.embedding = nn.Conv2d(channels,hidden_size, patch_size, patch_size)
+        '''
+        这个玩意，只是作为一个初始化时候随机一次，本质上是给每个embedding一个随机的数，就是一个编码了，而不是用Transformer中的什么sin，cos
+        '''
         self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, hidden_size))
         # self.patch_to_embedding = nn.Linear(patch_dim, dim)
         self.cls = nn.Parameter(torch.randn(1, 1, hidden_size))
